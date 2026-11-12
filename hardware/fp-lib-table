@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "CoaxRelay")(type "KiCad")(uri "${KIPRJMOD}/CoaxRelay.pretty")(options "")(descr "coax relay project footprints"))
+)

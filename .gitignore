@@ -1,0 +1,9 @@
+# KiCad
+*.kicad_prl
+fp-info-cache
+*-backups/
+*.bak
+_autosave-*
+# OpenSCAD / misc
+*.off
+.DS_Store

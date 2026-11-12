@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>同軸リレー操作</title>
+<style>
+  :root { --bg:#f5f5f2; --fg:#222; --card:#fff; --line:#ddd; --on:#c0392b; --off:#1f6feb; --muted:#777; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181b; --fg:#e8e8e8; --card:#202327; --line:#353a40; --muted:#999; }
+  }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,"Noto Sans JP",sans-serif; }
+  main { max-width:460px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:12px; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  button { font:inherit; border:1px solid var(--line); border-radius:8px; padding:10px 14px; cursor:pointer; background:var(--card); color:var(--fg); }
+  button:disabled { opacity:.4; cursor:default; }
+  .ants { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .ant { font-size:20px; font-weight:600; padding:22px 0; }
+  .ant.active { color:#fff; border-color:transparent; }
+  #b1.active { background:var(--off); }
+  #b2.active { background:var(--on); }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:6px 0; }
+  .muted { color:var(--muted); font-size:13px; }
+  #vin.low { color:var(--on); font-weight:600; }
+  pre { margin:0; max-height:140px; overflow:auto; font-size:12px; color:var(--muted); white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>同軸リレー操作</h1>
+    <div class="row">
+      <span id="conn" class="muted">未接続</span>
+      <span>
+        <button id="connect">接続</button>
+        <button id="disconnect" disabled>切断</button>
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ants">
+      <button id="b1" class="ant" disabled>ANT1</button>
+      <button id="b2" class="ant" disabled>ANT2</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span class="muted">12V入力</span><span id="vin">-- V</span>
+    </div>
+  </div>
+
+  <div class="card"><pre id="log"></pre></div>
+  <p class="muted">Chrome / Edge 専用 (Web Serial)。https か localhost で、単独のタブとして開いてください（他のページへの埋め込み表示では動きません）。</p>
+</main>
+
+<script>
+const LOW_V = 10.5;          // これ未満で警告表示
+const POLL_MS = 2000;
+let port, reader, writer, pollTimer, readLoopDone, lastUp = null;
+const $ = id => document.getElementById(id);
+
+function log(s) {
+  const t = new Date().toLocaleTimeString();
+  const el = $('log');
+  el.textContent = `${t} ${s}\n` + el.textContent.slice(0, 4000);
+}
+
+function setUI(connected) {
+  $('connect').disabled = connected;
+  $('disconnect').disabled = !connected;
+  $('b1').disabled = $('b2').disabled = !connected;
+  $('conn').textContent = connected ? '接続中' : '未接続';
+  if (!connected) { $('b1').classList.remove('active'); $('b2').classList.remove('active'); $('vin').textContent = '-- V'; }
+}
+
+async function send(cmd) {
+  if (!writer) return;
+  await writer.write(new TextEncoder().encode(cmd + '\n'));
+}
+
+function onLine(line) {
+  line = line.trim();
+  if (!line) return;
+  const m = line.match(/^STATE (ON|OFF) VIN ([\d.]+)(?: UP (\d+))?/);
+  if (m) {
+    if (m[3] !== undefined) {
+      const up = parseInt(m[3], 10);
+      if (lastUp !== null && up < lastUp) log('マイコンの再起動を検出（ANT1 に戻っています）');
+      else if (lastUp === null && up < 15) log('マイコン起動直後です（ANT1）');
+      lastUp = up;
+    }
+    const on = m[1] === 'ON';
+    $('b1').classList.toggle('active', !on);
+    $('b2').classList.toggle('active', on);
+    const v = parseFloat(m[2]);
+    $('vin').textContent = v.toFixed(2) + ' V';
+    $('vin').classList.toggle('low', v < LOW_V);
+    return;
+  }
+  if (line === 'BOOT') log('マイコン再起動を検出 (リレーは ANT1 に戻っています)');
+  else log('< ' + line);
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) { onLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
+    }
+  } catch (e) { log('読み取りエラー: ' + e.message); }
+}
+
+async function openPort(p) {
+  port = p;
+  await port.open({ baudRate: 115200 });
+  // DTR/RTS を同じ値にそろえる (ESP32 の自動リセット回路を動かさない / RP2040 は DTR 必須)
+  try { await port.setSignals({ dataTerminalReady: true, requestToSend: true }); } catch (e) {}
+  writer = port.writable.getWriter();
+  reader = port.readable.getReader();
+  readLoopDone = readLoop().then(() => { if (port) disconnect(); });
+  setUI(true);
+  log('接続しました');
+  await send('?');
+  pollTimer = setInterval(() => send('?'), POLL_MS);
+}
+
+async function disconnect() {
+  clearInterval(pollTimer);
+  const p = port; port = null;
+  try { await reader?.cancel(); } catch (e) {}
+  try { reader?.releaseLock(); } catch (e) {}
+  try { writer?.releaseLock(); } catch (e) {}
+  try { await p?.close(); } catch (e) {}
+  reader = writer = null;
+  setUI(false);
+  lastUp = null;
+  log('切断しました');
+}
+
+$('connect').onclick = async () => {
+  if (!('serial' in navigator)) { alert('このブラウザは Web Serial に対応していません (Chrome / Edge を使ってください)'); return; }
+  try { await openPort(await navigator.serial.requestPort()); }
+  catch (e) { log('接続失敗: ' + e.message); }
+};
+$('disconnect').onclick = disconnect;
+$('b1').onclick = () => send('OFF');
+$('b2').onclick = () => send('ON');
+
+if ('serial' in navigator) {
+  navigator.serial.addEventListener('disconnect', e => { if (e.target === port) { log('USB が外れました（再び接続されると自動で再接続します）'); disconnect(); } });
+  // 一度許可したポートが再び現れたら自動で再接続（RP2040はリセットでUSBが一度切れる）
+  navigator.serial.addEventListener('connect', e => {
+    if (port) return;
+    log('USB が再接続されました');
+    setTimeout(() => openPort(e.target).catch(err => log('再接続失敗: ' + err.message)), 500);
+  });
+  // 以前許可したポートがあれば自動接続 (リモートデスクトップ運用向け)
+  navigator.serial.getPorts().then(ps => { if (ps.length === 1) openPort(ps[0]).catch(e => log('自動接続失敗: ' + e.message)); });
+}
+setUI(false);
+</script>
+</body>
+</html>
