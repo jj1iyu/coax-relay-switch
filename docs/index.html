@@ -276,7 +276,19 @@ $('updStart').onclick = async () => {
 // ② RPI-RP2 ドライブを選んで .uf2 を書き込む（ブラウザのフォルダ選択を使う）
 $('updWrite').onclick = async () => {
   if (!uf2Data) return;
-  if (!('showDirectoryPicker' in window)) { log('このブラウザはドライブへの書き込みに対応していません。.uf2 をダウンロードしてRPI-RP2へコピーしてください'); return; }
+  if (!('showDirectoryPicker' in window)) {
+    // Brave など、ドライブへの直接書き込み(File System Access API)が使えないブラウザ → .uf2 を保存して手でコピー
+    const br = (navigator.userAgentData?.brands || []).map(x => x.brand).filter(x => !/Not.?A.?Brand/i.test(x)).join(', ') || navigator.userAgent;
+    log(`このブラウザ（${br}）はドライブへの直接書き込みが使えません`);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([uf2Data], { type: 'application/octet-stream' }));
+    a.download = 'coax_relay_ctrl.uf2';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    log('.uf2 を保存しました → エクスプローラーでダウンロードフォルダの coax_relay_ctrl.uf2 を「RPI-RP2」ドライブへコピーしてください（コピーが終わるとマイコンが自動で再起動し、ページが再接続します）');
+    inBootsel = false; updateMaintUI();
+    return;
+  }
   let dir;
   try { dir = await window.showDirectoryPicker({ id: 'rpi-rp2', mode: 'readwrite' }); }
   catch (e) { log('ドライブの選択を中止しました（' + e.message + '）'); return; }
