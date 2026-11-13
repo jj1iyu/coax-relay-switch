@@ -84,9 +84,10 @@ module case_body() {
         // DCジャック（左側面）: 穴 + 外側の座ぐり（壁を薄くしてプラグを届かせる）
         translate([-wall-1, cy(dc_y), pcb_top + dc_z]) rotate([0,90,0]) cylinder(d=dc_hole, h=wall+2);
         translate([-wall-1, cy(dc_y), pcb_top + dc_z]) rotate([0,90,0]) cylinder(d=13, h=1 + wall - 1.2);
-        // USB-C（奥側面）: 開口 + 外側の座ぐり（壁1.0mmまで）
-        translate([cx(usb_x) - usb_w/2, id - 1, pcb_top + usb_z - usb_h/2]) cube([usb_w, wall + 2, usb_h]);
-        translate([cx(usb_x) - 8, id + 1.0, pcb_top + usb_z - 5.5]) cube([16, wall, 11]);
+        // USB-C（奥側面）: 壁の上端まで切り欠いた開口（上はフタで塞ぐ。サポート不要で、高さのずれにも強い）
+        //                  + 外側の座ぐり（壁1.0mmまで、こちらも上端まで）
+        translate([cx(usb_x) - usb_w/2, id - 1, pcb_top + usb_z - usb_h/2]) cube([usb_w, wall + 2, oh]);
+        translate([cx(usb_x) - 8, id + 1.0, pcb_top + usb_z - 5.5]) cube([16, wall, oh]);
         // F-J（手前側面）
         translate([cx(fj_x), -wall/2, pcb_top + fj_z]) dcut_hole(fj_d, fj_flat, wall + 2);
         // 底の基板ネジ用の下穴は貫通させない（底面はフラット）

@@ -90,7 +90,9 @@ Fコネクタはシールドが常に GND なので、中心導体（12V 側）�
 
 ## ケース（case/）
 
-- `coax_relay_case_body.stl` / `coax_relay_case_lid.stl` をそのまま印刷（サポート不要、PLA / PETG）。
+- `coax_relay_case_body.stl` / `coax_relay_case_lid.stl` をそのまま印刷（PLA / PETG）。本体は開口を上、フタは表面を下にすれば**サポート不要**。
+  - 45°を超えるオーバーハングは、穴（DCジャック φ10・F-J φ9.8）の上辺の短いブリッジと刻印文字だけ。USB開口は壁の上端まで切り欠いてあり、上はフタで塞ぐ。
+  - フタ固定ボスの下面は約45°の斜面。
 - 外形 約 65.8 × 76.8 × 30mm。基板の手前（F-J 側）に 15mm の配線スペース、奥（USB 側）に 10mm の余白。
 - ネジ: 基板 M3×6 タッピング ×4、フタ M3×8 タッピング ×2。F-J は付属ナットで固定し、GND は M10 丸端子をナットに挟んで J4 へ。
 - 寸法は `coax_relay_case.scad` の先頭のパラメータで調整（`usb_z`, `fj_d`, `fj_flat`, `front_margin`, `back_margin` など）。
