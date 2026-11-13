@@ -5,25 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>同軸リレー操作</title>
 <style>
-  :root { --bg:#f5f5f2; --fg:#222; --card:#fff; --line:#ddd; --on:#c0392b; --off:#1f6feb; --muted:#777; }
+  :root { --bg:#f5f5f2; --fg:#222; --card:#fff; --line:#ddd; --on:#c0392b; --off:#1f6feb; --muted:#777; --ok:#1a7f37; --warn:#b35c00; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#16181b; --fg:#e8e8e8; --card:#202327; --line:#353a40; --muted:#999; }
+    :root { --bg:#16181b; --fg:#e8e8e8; --card:#202327; --line:#353a40; --muted:#999; --ok:#3fb950; --warn:#f0a35e; }
   }
   body { margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,"Noto Sans JP",sans-serif; }
   main { max-width:460px; margin:24px auto; padding:0 16px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:12px; }
   h1 { font-size:18px; margin:0 0 12px; }
+  h2 { font-size:15px; margin:0 0 10px; }
   button { font:inherit; border:1px solid var(--line); border-radius:8px; padding:10px 14px; cursor:pointer; background:var(--card); color:var(--fg); }
   button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:var(--off); color:#fff; border-color:transparent; }
+  input { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 10px; width:6em; }
   .ants { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .ant { font-size:20px; font-weight:600; padding:22px 0; }
   .ant.active { color:#fff; border-color:transparent; }
   #b1.active { background:var(--off); }
   #b2.active { background:var(--on); }
-  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:6px 0; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:6px 0; flex-wrap:wrap; }
   .muted { color:var(--muted); font-size:13px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); font-weight:600; }
   #vin.low { color:var(--on); font-weight:600; }
-  pre { margin:0; max-height:140px; overflow:auto; font-size:12px; color:var(--muted); white-space:pre-wrap; }
+  details summary { cursor:pointer; font-weight:600; }
+  details[open] summary { margin-bottom:10px; }
+  pre { margin:0; max-height:160px; overflow:auto; font-size:12px; color:var(--muted); white-space:pre-wrap; }
 </style>
 </head>
 <body>
@@ -49,6 +55,31 @@
     </div>
   </div>
 
+  <div class="card">
+    <details id="maint">
+      <summary>保守（ファームウェア更新・校正）<span id="updBadge" class="warn"></span></summary>
+
+      <div class="row"><span class="muted">マイコンの版</span><span id="fwVer">--</span></div>
+      <div class="row"><span class="muted">公開中の最新版</span><span id="latestVer">--</span></div>
+      <div class="row"><span class="muted">校正値</span><span id="calVal">--</span></div>
+
+      <h2 style="margin-top:14px">ファームウェア更新</h2>
+      <p class="muted" style="margin:0 0 8px">更新中は出力がOFF（ANT1）になります。送信していないことを確認してから行ってください。</p>
+      <div class="row">
+        <button id="updStart" disabled>① 書き込みモードにする</button>
+        <button id="updWrite" class="primary" disabled>② RPI-RP2 を選んで書き込む</button>
+      </div>
+      <div class="row"><a id="uf2Link" href="firmware/coax_relay_ctrl.uf2" download class="muted">.uf2 をダウンロード（手動でRPI-RP2へコピーする場合）</a></div>
+
+      <h2 style="margin-top:14px">電圧の校正</h2>
+      <p class="muted" style="margin:0 0 8px">テスターで測った12V入力の電圧を入れて「校正」。値はマイコン内に保存されます。</p>
+      <div class="row">
+        <span><input id="calIn" type="number" step="0.01" min="5" max="20" placeholder="12.12"> V</span>
+        <span><button id="calBtn" disabled>校正</button> <button id="calReset" disabled>初期値に戻す</button></span>
+      </div>
+    </details>
+  </div>
+
   <div class="card"><pre id="log"></pre></div>
   <p class="muted">Chrome / Edge 専用 (Web Serial)。https か localhost で、単独のタブとして開いてください（他のページへの埋め込み表示では動きません）。</p>
 </main>
@@ -56,7 +87,10 @@
 <script>
 const LOW_V = 10.5;          // これ未満で警告表示
 const POLL_MS = 2000;
+const FW_URL = 'firmware/coax_relay_ctrl.uf2';
+const VER_URL = 'firmware/version.json';
 let port, reader, writer, pollTimer, readLoopDone, lastUp = null;
+let fwVer = null, latest = null, uf2Data = null, inBootsel = false;
 const $ = id => document.getElementById(id);
 
 function log(s) {
@@ -65,12 +99,32 @@ function log(s) {
   el.textContent = `${t} ${s}\n` + el.textContent.slice(0, 4000);
 }
 
+// "0.3.0" 形式の比較（a<b なら負）
+function cmpVer(a, b) {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d; }
+  return 0;
+}
+
+function updateMaintUI() {
+  const connected = !!writer;
+  $('fwVer').textContent = fwVer || (connected ? '0.2 以前（版情報なし）' : '--');
+  $('latestVer').textContent = latest ? latest.version : '--';
+  const newer = latest && (!fwVer || cmpVer(fwVer, latest.version) < 0);
+  $('updBadge').textContent = connected && newer ? '　更新あり' : '';
+  if (connected && newer) $('maint').open = true;
+  $('updStart').disabled = !connected;
+  $('updWrite').disabled = !inBootsel;
+  $('calBtn').disabled = $('calReset').disabled = !connected || !fwVer;
+}
+
 function setUI(connected) {
   $('connect').disabled = connected;
   $('disconnect').disabled = !connected;
   $('b1').disabled = $('b2').disabled = !connected;
   $('conn').textContent = connected ? '接続中' : '未接続';
   if (!connected) { $('b1').classList.remove('active'); $('b2').classList.remove('active'); $('vin').textContent = '-- V'; }
+  updateMaintUI();
 }
 
 async function send(cmd) {
@@ -81,7 +135,7 @@ async function send(cmd) {
 function onLine(line) {
   line = line.trim();
   if (!line) return;
-  const m = line.match(/^STATE (ON|OFF) VIN ([\d.]+)(?: UP (\d+))?/);
+  let m = line.match(/^STATE (ON|OFF) VIN ([\d.]+)(?: UP (\d+))?/);
   if (m) {
     if (m[3] !== undefined) {
       const up = parseInt(m[3], 10);
@@ -97,8 +151,16 @@ function onLine(line) {
     $('vin').classList.toggle('low', v < LOW_V);
     return;
   }
-  if (line === 'BOOT') log('マイコン再起動を検出 (リレーは ANT1 に戻っています)');
-  else log('< ' + line);
+  m = line.match(/^VER (\S+) CAL ([\d.]+)/);
+  if (m) { fwVer = m[1]; $('calVal').textContent = m[2]; updateMaintUI(); return; }
+  m = line.match(/^CAL OK ([\d.]+)/);
+  if (m) { $('calVal').textContent = m[1]; log('校正しました（校正値 ' + m[1] + '）'); return; }
+  if (line.startsWith('BOOTSEL')) { log('書き込みモードに切り替えます'); return; }
+  if (line.startsWith('BOOT')) { log('マイコン再起動を検出（ANT1 に戻っています）' + (line.length > 5 ? ' 版 ' + line.slice(5) : '')); send('VER'); return; }
+  if (line.startsWith('ERR CAL NO 12V')) { log('校正できません：12Vが入っていません'); return; }
+  if (line.startsWith('ERR CAL')) { log('校正できません：値を確認してください（' + line + '）'); return; }
+  if (line.startsWith('ERR VER')) { fwVer = null; updateMaintUI(); return; }   // 0.2以前は VER 非対応
+  log('< ' + line);
 }
 
 async function readLoop() {
@@ -123,8 +185,10 @@ async function openPort(p) {
   writer = port.writable.getWriter();
   reader = port.readable.getReader();
   readLoopDone = readLoop().then(() => { if (port) disconnect(); });
+  fwVer = null; inBootsel = false;
   setUI(true);
   log('接続しました');
+  await send('VER');
   await send('?');
   pollTimer = setInterval(() => send('?'), POLL_MS);
 }
@@ -137,11 +201,78 @@ async function disconnect() {
   try { writer?.releaseLock(); } catch (e) {}
   try { await p?.close(); } catch (e) {}
   reader = writer = null;
-  setUI(false);
   lastUp = null;
+  setUI(false);
   log('切断しました');
 }
 
+// ---------------- 最新版の確認 ----------------
+async function checkLatest() {
+  try {
+    const r = await fetch(VER_URL, { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    latest = await r.json();
+  } catch (e) { latest = null; }
+  updateMaintUI();
+}
+
+// ---------------- ファームウェア更新 ----------------
+// ① 最新の .uf2 を取得してから BOOTSEL を送る（マイコンは RPI-RP2 ドライブとして再起動）
+$('updStart').onclick = async () => {
+  if (!confirm('ファームウェア更新のため、マイコンを書き込みモードにします。\n出力はOFF（ANT1）になります。送信していないことを確認してください。')) return;
+  try {
+    const r = await fetch(FW_URL, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    uf2Data = await r.arrayBuffer();
+    log(`最新のファームウェアを取得しました（${(uf2Data.byteLength / 1024).toFixed(0)}KB）`);
+  } catch (e) { log('ファームウェアを取得できませんでした: ' + e.message); return; }
+  if (fwVer) {
+    await send('BOOTSEL');
+  } else {
+    log('この版は自動で書き込みモードにできません。BOOTボタンを押しながらRESETを押して、RPI-RP2 ドライブを出してください');
+  }
+  inBootsel = true; updateMaintUI();
+  log('PCに「RPI-RP2」ドライブが出たら、②を押してそのドライブを選んでください');
+};
+
+// ② RPI-RP2 ドライブを選んで .uf2 を書き込む（ブラウザのフォルダ選択を使う）
+$('updWrite').onclick = async () => {
+  if (!uf2Data) return;
+  if (!('showDirectoryPicker' in window)) { log('このブラウザはドライブへの書き込みに対応していません。.uf2 をダウンロードしてRPI-RP2へコピーしてください'); return; }
+  let dir;
+  try { dir = await window.showDirectoryPicker({ id: 'rpi-rp2', mode: 'readwrite' }); }
+  catch (e) { log('ドライブの選択を中止しました（' + e.message + '）'); return; }
+  try {
+    const fh = await dir.getFileHandle('INFO_UF2.TXT').catch(() => null);
+    if (!fh) { log('選んだ場所は RPI-RP2 ドライブではないようです（INFO_UF2.TXT がありません）'); return; }
+  } catch (e) {}
+  log('書き込み中…（終わるとマイコンが自動で再起動します）');
+  try {
+    const out = await dir.getFileHandle('coax_relay_ctrl.uf2', { create: true });
+    const w = await out.createWritable();
+    await w.write(uf2Data);
+    await w.close();
+    log('書き込みました');
+  } catch (e) {
+    // 書き込み完了と同時にマイコンが再起動してドライブが消えるため、ここでエラーになることがある
+    log('書き込み終了（ドライブが外れました: ' + e.message + '）');
+  }
+  inBootsel = false; uf2Data = null; updateMaintUI();
+  log('再起動後、自動で再接続して新しい版を確認します');
+};
+
+// ---------------- 校正 ----------------
+$('calBtn').onclick = async () => {
+  const v = parseFloat($('calIn').value);
+  if (!(v >= 5 && v <= 20)) { log('校正値は 5〜20V の範囲で入れてください'); return; }
+  await send('CAL ' + v.toFixed(2));
+};
+$('calReset').onclick = async () => {
+  if (!confirm('校正値を初期値（1.0）に戻しますか？')) return;
+  await send('CAL RESET');
+};
+
+// ---------------- 接続 ----------------
 $('connect').onclick = async () => {
   if (!('serial' in navigator)) { alert('このブラウザは Web Serial に対応していません (Chrome / Edge を使ってください)'); return; }
   try { await openPort(await navigator.serial.requestPort()); }
@@ -152,8 +283,10 @@ $('b1').onclick = () => send('OFF');
 $('b2').onclick = () => send('ON');
 
 if ('serial' in navigator) {
-  navigator.serial.addEventListener('disconnect', e => { if (e.target === port) { log('USB が外れました（再び接続されると自動で再接続します）'); disconnect(); } });
-  // 一度許可したポートが再び現れたら自動で再接続（RP2040はリセットでUSBが一度切れる）
+  navigator.serial.addEventListener('disconnect', e => {
+    if (e.target === port) { log(inBootsel ? '書き込みモードに入りました' : 'USB が外れました（再び接続されると自動で再接続します）'); disconnect(); }
+  });
+  // 一度許可したポートが再び現れたら自動で再接続（RP2040はリセット・書き込みでUSBが一度切れる）
   navigator.serial.addEventListener('connect', e => {
     if (port) return;
     log('USB が再接続されました');
@@ -163,6 +296,7 @@ if ('serial' in navigator) {
   navigator.serial.getPorts().then(ps => { if (ps.length === 1) openPort(ps[0]).catch(e => log('自動接続失敗: ' + e.message)); });
 }
 setUI(false);
+checkLatest();
 </script>
 </body>
 </html>

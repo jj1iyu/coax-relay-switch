@@ -1,0 +1,55 @@
+# ファームウェアを自動でビルドし、操作ページ（GitHub Pages）から更新できるように公開する
+#  - firmware/ を変更して push すると実行
+#  - docs/firmware/coax_relay_ctrl.uf2 と docs/firmware/version.json を更新してコミット
+#  - Pages は main の /docs から配信しているので、そのまま操作ページに反映される
+name: firmware
+
+on:
+  push:
+    branches: [main]
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Install Arduino-Pico core
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+          arduino-cli core update-index
+          arduino-cli core install rp2040:rp2040
+
+      - name: Compile (Waveshare RP2040 Zero)
+        run: arduino-cli compile -b rp2040:rp2040:waveshare_rp2040_zero --output-dir build firmware/coax_relay_ctrl
+
+      - name: Publish .uf2 and version.json to docs/firmware
+        run: |
+          VER=$(sed -n 's/^#define FW_VERSION "\([^"]*\)".*/\1/p' firmware/coax_relay_ctrl/coax_relay_ctrl.ino)
+          test -n "$VER"
+          mkdir -p docs/firmware
+          cp build/coax_relay_ctrl.ino.uf2 docs/firmware/coax_relay_ctrl.uf2
+          printf '{"version":"%s","file":"coax_relay_ctrl.uf2","commit":"%s","built":"%s"}\n' \
+            "$VER" "${GITHUB_SHA::7}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > docs/firmware/version.json
+          cat docs/firmware/version.json
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/firmware
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "firmware: ビルド結果を公開 ($(jq -r .version docs/firmware/version.json))"
+          git push
