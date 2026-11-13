@@ -131,7 +131,7 @@ module lid_assembled() {
         }
         for (b = lid_bosses) translate([b[0], b[1], -lip_h - 1]) cylinder(d=screw_clear, h=lid_t + lip_h + 2);
         translate([cx(led_x), cy(led_y), -1]) cylinder(d=led_hole, h=lid_t + 2);
-        translate([cx(led_x), cy(led_y) + 4.5, lid_t - 0.6]) label("ANT2", 2.8);
+        translate([cx(led_x), cy(led_y) + 4.5, lid_t - 0.6]) label("ANT B", 2.8);
         translate([iw/2 + 4, id/2 + 6, lid_t - 0.6]) label("COAX SW", 5);
     }
 }

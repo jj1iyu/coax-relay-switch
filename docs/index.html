@@ -19,7 +19,10 @@
   button.primary { background:var(--off); color:#fff; border-color:transparent; }
   input { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 10px; width:6em; }
   .ants { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .ant { font-size:20px; font-weight:600; padding:22px 0; }
+  .ant { font-size:20px; font-weight:600; padding:16px 6px; overflow-wrap:anywhere; }
+  .ant small { display:block; font-size:12px; font-weight:400; opacity:.75; margin-top:4px; }
+  .names { display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:center; margin:0 0 8px; }
+  .names input { width:auto; min-width:0; }
   .ant.active { color:#fff; border-color:transparent; }
   #b1.active { background:var(--off); }
   #b2.active { background:var(--on); }
@@ -47,8 +50,8 @@
 
   <div class="card">
     <div class="ants">
-      <button id="b1" class="ant" disabled>ANT1</button>
-      <button id="b2" class="ant" disabled>ANT2</button>
+      <button id="b1" class="ant" disabled><span class="nm">ANT A</span><small>A ・ 非通電</small></button>
+      <button id="b2" class="ant" disabled><span class="nm">ANT B</span><small>B ・ 通電 12V</small></button>
     </div>
     <div class="row" style="margin-top:12px">
       <span class="muted">12V入力</span><span id="vin">-- V</span>
@@ -57,14 +60,23 @@
 
   <div class="card">
     <details id="maint">
-      <summary>保守（ファームウェア更新・校正）<span id="updBadge" class="warn"></span></summary>
+      <summary>設定・保守（アンテナ名・更新・校正）<span id="updBadge" class="warn"></span></summary>
 
+      <h2>アンテナ名</h2>
+      <p class="muted" style="margin:0 0 8px">ボタンに表示する名前です。このブラウザに保存されます（空欄なら ANT A / ANT B）。</p>
+      <div class="names">
+        <span class="muted">A（非通電）</span><input id="nameA" maxlength="20" placeholder="ANT A">
+        <span class="muted">B（通電）</span><input id="nameB" maxlength="20" placeholder="ANT B">
+      </div>
+      <div class="row"><span id="nameMsg" class="muted"></span><span><button id="nameReset">初期値に戻す</button> <button id="nameSave">保存</button></span></div>
+
+      <h2 style="margin-top:14px">マイコン</h2>
       <div class="row"><span class="muted">マイコンの版</span><span id="fwVer">--</span></div>
       <div class="row"><span class="muted">公開中の最新版</span><span id="latestVer">--</span></div>
       <div class="row"><span class="muted">校正値</span><span id="calVal">--</span></div>
 
       <h2 style="margin-top:14px">ファームウェア更新</h2>
-      <p class="muted" style="margin:0 0 8px">更新中は出力がOFF（ANT1）になります。送信していないことを確認してから行ってください。</p>
+      <p class="muted" style="margin:0 0 8px">更新中は出力がOFF（<span class="nmA">ANT A</span> 側）になります。送信していないことを確認してから行ってください。</p>
       <div class="row">
         <button id="updStart" disabled>① 書き込みモードにする</button>
         <button id="updWrite" class="primary" disabled>② RPI-RP2 を選んで書き込む</button>
@@ -92,6 +104,32 @@ const VER_URL = 'firmware/version.json';
 let port, reader, writer, pollTimer, readLoopDone, lastUp = null;
 let fwVer = null, latest = null, uf2Data = null, inBootsel = false;
 const $ = id => document.getElementById(id);
+
+// ---------------- アンテナ名（このブラウザに保存） ----------------
+const NAME_KEY = 'coaxRelay.antNames';
+const DEF_NAMES = { a: 'ANT A', b: 'ANT B' };
+let names = { ...DEF_NAMES };
+try {
+  const j = JSON.parse(localStorage.getItem(NAME_KEY) || 'null');
+  if (j) names = { a: String(j.a || '').trim() || DEF_NAMES.a, b: String(j.b || '').trim() || DEF_NAMES.b };
+} catch (e) {}
+const nmA = () => names.a, nmB = () => names.b;
+function applyNames() {
+  $('b1').querySelector('.nm').textContent = names.a;
+  $('b2').querySelector('.nm').textContent = names.b;
+  document.querySelectorAll('.nmA').forEach(el => el.textContent = names.a);
+  $('nameA').value = names.a === DEF_NAMES.a ? '' : names.a;
+  $('nameB').value = names.b === DEF_NAMES.b ? '' : names.b;
+  document.title = `同軸リレー操作（${names.a} / ${names.b}）`;
+}
+function saveNames(n) {
+  names = n;
+  let ok = true;
+  try { localStorage.setItem(NAME_KEY, JSON.stringify(names)); } catch (e) { ok = false; }
+  applyNames();
+  $('nameMsg').textContent = ok ? '保存しました' : 'このブラウザでは保存できません（表示は今回のみ）';
+  setTimeout(() => $('nameMsg').textContent = '', 3000);
+}
 
 function log(s) {
   const t = new Date().toLocaleTimeString();
@@ -139,8 +177,8 @@ function onLine(line) {
   if (m) {
     if (m[3] !== undefined) {
       const up = parseInt(m[3], 10);
-      if (lastUp !== null && up < lastUp) log('マイコンの再起動を検出（ANT1 に戻っています）');
-      else if (lastUp === null && up < 15) log('マイコン起動直後です（ANT1）');
+      if (lastUp !== null && up < lastUp) log(`マイコンの再起動を検出（${nmA()} に戻っています）`);
+      else if (lastUp === null && up < 15) log(`マイコン起動直後です（${nmA()}）`);
       lastUp = up;
     }
     const on = m[1] === 'ON';
@@ -156,7 +194,7 @@ function onLine(line) {
   m = line.match(/^CAL OK ([\d.]+)/);
   if (m) { $('calVal').textContent = m[1]; log('校正しました（校正値 ' + m[1] + '）'); return; }
   if (line.startsWith('BOOTSEL')) { log('書き込みモードに切り替えます'); return; }
-  if (line.startsWith('BOOT')) { log('マイコン再起動を検出（ANT1 に戻っています）' + (line.length > 5 ? ' 版 ' + line.slice(5) : '')); send('VER'); return; }
+  if (line.startsWith('BOOT')) { log(`マイコン再起動を検出（${nmA()} に戻っています）` + (line.length > 5 ? ' 版 ' + line.slice(5) : '')); send('VER'); return; }
   if (line.startsWith('ERR CAL NO 12V')) { log('校正できません：12Vが入っていません'); return; }
   if (line.startsWith('ERR CAL')) { log('校正できません：値を確認してください（' + line + '）'); return; }
   if (line.startsWith('ERR VER')) { fwVer = null; updateMaintUI(); return; }   // 0.2以前は VER 非対応
@@ -219,7 +257,7 @@ async function checkLatest() {
 // ---------------- ファームウェア更新 ----------------
 // ① 最新の .uf2 を取得してから BOOTSEL を送る（マイコンは RPI-RP2 ドライブとして再起動）
 $('updStart').onclick = async () => {
-  if (!confirm('ファームウェア更新のため、マイコンを書き込みモードにします。\n出力はOFF（ANT1）になります。送信していないことを確認してください。')) return;
+  if (!confirm(`ファームウェア更新のため、マイコンを書き込みモードにします。\n出力はOFF（${nmA()} 側）になります。送信していないことを確認してください。`)) return;
   try {
     const r = await fetch(FW_URL, { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -279,8 +317,14 @@ $('connect').onclick = async () => {
   catch (e) { log('接続失敗: ' + e.message); }
 };
 $('disconnect').onclick = disconnect;
-$('b1').onclick = () => send('OFF');
-$('b2').onclick = () => send('ON');
+$('b1').onclick = () => { log(`${nmA()} に切り替え`); send('OFF'); };
+$('b2').onclick = () => { log(`${nmB()} に切り替え`); send('ON'); };
+$('nameSave').onclick = () => saveNames({
+  a: $('nameA').value.trim() || DEF_NAMES.a,
+  b: $('nameB').value.trim() || DEF_NAMES.b,
+});
+$('nameReset').onclick = () => saveNames({ ...DEF_NAMES });
+['nameA', 'nameB'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('nameSave').click(); }));
 
 if ('serial' in navigator) {
   navigator.serial.addEventListener('disconnect', e => {
@@ -295,6 +339,7 @@ if ('serial' in navigator) {
   // 以前許可したポートがあれば自動接続 (リモートデスクトップ運用向け)
   navigator.serial.getPorts().then(ps => { if (ps.length === 1) openPort(ps[0]).catch(e => log('自動接続失敗: ' + e.message)); });
 }
+applyNames();
 setUI(false);
 checkLatest();
 </script>

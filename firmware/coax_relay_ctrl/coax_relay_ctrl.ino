@@ -3,8 +3,8 @@
 //   ESP32       : Arduino-ESP32 コア
 //
 // シリアルコマンド (115200bps, 行末 \n、大文字小文字は区別しない)
-//   ON          : 出力ON  (ANT2)
-//   OFF         : 出力OFF (ANT1)
+//   ON          : 出力ON  (ANT B)
+//   OFF         : 出力OFF (ANT A)
 //   ?           : 状態問い合わせ        -> "STATE ON VIN 12.10 UP 120"
 //   VER         : 版と校正値            -> "VER 0.3.0 CAL 1.0245"
 //   CAL 12.12   : テスターで測った12Vの実測値を渡して校正（校正値はフラッシュに保存）
@@ -129,7 +129,7 @@ void handle(String cmd) {
 
 void setup() {
   pinMode(PIN_RELAY, OUTPUT);
-  setRelay(false);                   // 起動時は必ず非通電 (ANT1)
+  setRelay(false);                   // 起動時は必ず非通電 (ANT A)
 #if defined(ARDUINO_ARCH_RP2040)
   analogReadResolution(12);
 #else
