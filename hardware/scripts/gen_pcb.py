@@ -1,10 +1,10 @@
 """Stage 1: create board, place footprints, assign nets, outline. Usage: gen_pcb.py place|route|finish"""
 import sys, json, os
-sys.path.insert(0, "/home/claude/gen")
+sys.path.insert(0, "/home/claude/gen03")
 import pcbnew
 from design import PARTS, PLACE, BOARD
 
-PRJ = "/home/claude/coax_relay"
+PRJ = "/home/claude/rev03"
 PCB = f"{PRJ}/coax_relay.kicad_pcb"
 FPLIB = "/usr/share/kicad/footprints"
 MM = pcbnew.FromMM
@@ -208,12 +208,11 @@ def import_ses(board, path):
 
 def finish():
     board = pcbnew.LoadBoard(PCB)
-    import_ses(board, "/home/claude/gen/board.ses")
+    import_ses(board, "/home/claude/gen03/board.ses")
     # reference text placement (silk) for the dense bottom row
-    refpos = {"R5": (121.0, 142.4, 0), "R2": (124.0, 142.4, 0), "Q1": (129.3, 138.6, 0), "R1": (134.8, 142.4, 0),
-              "D2": (138.1, 129.8, 0), "R3": (122.8, 110.6, 0), "C1": (119.5, 107.0, 0), "U1": (143.0, 121.0, 0), "J1": (106.0, 127.5, 0),
-              "R4": (122.8, 118.6, 0), "C3": (131.9, 114.8, 90), "C2": (132.4, 106.2, 90), "LED1": (116.3, 133.3, 0),
-              "J4": (144.0, 133.0, 0), "Q2": (127.6, 125.2, 0), "R7": (129.9, 129.0, 0)}
+    refpos = {"U1": (117.0, 126.0, 0), "J1": (133.0, 142.0, 0), "F1": (132.05, 126.5, 0), "LED1": (141.3, 139.6, 0),
+              "R1": (131.81, 111.0, 0), "R2": (131.81, 107.0, 0), "R3": (113.81, 112.0, 0), "R4": (113.81, 116.0, 0),
+              "R7": (133.81, 116.0, 0)}
     for fp in board.GetFootprints():
         ref = fp.GetReference()
         if ref in refpos:
@@ -225,8 +224,9 @@ def finish():
             fp.Reference().SetVisible(False)
         fp.Value().SetVisible(False)
     # board texts
-    texts = [("DC12V IN", 106.0, 113.4, 1.0), ("F-J OUT", 149.2, 133.0, 0.9), ("12V", 143.8, 135.6, 0.9), ("GND", 148.9, 135.6, 0.9),
-             ("ON", 116.3, 140.2, 0.8), ("COAX RELAY CTRL v0.2", 125.5, 145.0, 0.9)]
+    texts = [("DC12V", 133.0, 145.0, 0.9), ("ON", 146.3, 143.3, 0.8),
+             ("F-J", 152.0, 140.0, 1.0), ("12V", 149.46, 134.6, 0.8), ("GND", 154.54, 134.6, 0.8),
+             ("COAX RELAY CTRL v0.3", 116.0, 101.3, 0.9)]
     for s, x, y, sz in texts:
         t = pcbnew.PCB_TEXT(board)
         t.SetText(s)
@@ -255,7 +255,7 @@ def finish():
         board.Add(z)
     pcbnew.ZONE_FILLER(board).Fill(board.Zones())
     board.Save(PCB)
-    pcbnew.WriteDRCReport(board, "/home/claude/gen/drc.rpt", pcbnew.EDA_UNITS_MILLIMETRES, True)
+    pcbnew.WriteDRCReport(board, "/home/claude/gen03/drc.rpt", pcbnew.EDA_UNITS_MILLIMETRES, True)
     print("finished")
 
 

@@ -7,7 +7,7 @@
   (title_block
     (title "Coax relay controller (RP2040-Zero)")
     (date "2026-11-07")
-    (rev "0.2")
+    (rev "0.3")
     (comment 1 "12V high-side output to chassis F-J, Web Serial control")
   )
 
